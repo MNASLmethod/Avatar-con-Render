@@ -1,4 +1,4 @@
-fastapi
+flask
+requests
 uvicorn
-httpx
-pydantic
+fastapi
