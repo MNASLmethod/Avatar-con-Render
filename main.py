@@ -1,20 +1,24 @@
 import os
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # tu clave de OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions"
 
 @app.post("/v1/chat/completions")
 async def proxy_openai_endpoint(request: Request):
     try:
-        # Obtener el cuerpo de la solicitud que viene de Beyond Presence o de curl
         body = await request.json()
 
-        # Enviar la solicitud a la API de OpenAI
+        if not OPENAI_API_KEY:
+            return JSONResponse(
+                content={"error": "Falta la variable OPENAI_API_KEY en Render."},
+                status_code=500
+            )
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 OPENAI_BASE_URL,
@@ -25,10 +29,20 @@ async def proxy_openai_endpoint(request: Request):
                 json=body,
             )
 
-        # Devolver exactamente lo que responde OpenAI
-        return JSONResponse(content=response.json(), status_code=response.status_code)
+        # Mostrar la respuesta de OpenAI para depurar
+        try:
+            data = response.json()
+        except Exception:
+            data = {"error": "Respuesta no JSON de OpenAI", "text": response.text}
+
+        return JSONResponse(content=data, status_code=response.status_code)
 
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        import traceback
+        return JSONResponse(
+            content={"error": str(e), "traceback": traceback.format_exc()},
+            status_code=500
+        )
+
 
 
