@@ -5,19 +5,17 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 app = FastAPI()
 
-# URL base de OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # tu clave de OpenAI
 OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 @app.post("/v1/chat/completions")
 async def proxy_openai_endpoint(request: Request):
     try:
-        if not OPENAI_API_KEY:
-            return JSONResponse({"error": "Missing OpenAI API key"}, status_code=500)
-
+        # Obtener el cuerpo de la solicitud que viene de Beyond Presence o de curl
         body = await request.json()
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        # Enviar la solicitud a la API de OpenAI
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 OPENAI_BASE_URL,
                 headers={
@@ -27,9 +25,10 @@ async def proxy_openai_endpoint(request: Request):
                 json=body,
             )
 
-        # Devolver directamente la respuesta de OpenAI
-        return JSONResponse(response.json(), status_code=response.status_code)
+        # Devolver exactamente lo que responde OpenAI
+        return JSONResponse(content=response.json(), status_code=response.status_code)
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
