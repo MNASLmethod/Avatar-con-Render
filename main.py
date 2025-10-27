@@ -1,65 +1,48 @@
-import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+import os
+import requests
 
-# 1. Inicializar la aplicación FastAPI
-app = FastAPI()
+# === CONFIGURACIÓN ===
+BEYOND_API_KEY = os.getenv("BEYOND_PRESENCE_API_KEY")
 
-# 2. Configuración para el reenvío (Cambia la URL por la real de OpenAI)
-OPENAI_BASE_URL = "https://api.openai.com"
+if not BEYOND_API_KEY:
+    print("❌ Error: falta la clave de Beyond Presence. Asegúrate de haberla añadido en las variables de entorno.")
+    exit()
 
-# 3. La única ruta que necesitamos: /v1/chat/completions (el endpoint de chat)
-@app.api_route("/v1/chat/completions", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy_openai_endpoint(request: Request):
-    
-    # 3.1. Leer el método y la ruta
-    method = request.method
-    path = request.url.path
-    
-    # 3.2. Obtener el cuerpo de la solicitud si existe
-    try:
-        data = await request.json()
-    except:
-        data = None
+# === CABECERAS ===
+headers = {
+    "Authorization": f"Bearer {BEYOND_API_KEY}",
+    "Content-Type": "application/json"
+}
 
-    # 3.3. Crear la URL final hacia OpenAI
-    url = f"{OPENAI_BASE_URL}{path}"
-    
-    # 3.4. Obtener las cabeceras (headers)
-    # Incluimos solo las cabeceras relevantes (Authorization, Content-Type, etc.)
-    headers = {
-        key: value for key, value in request.headers.items() 
-        if key.lower() in ["authorization", "content-type"]
-    }
+# === DATOS DEL AGENTE ===
+payload = {
+    "name": "MNASL Tutor GPT-4o",
+    "llm_api_id": "ba46f199-4f70-4729-ae6d-78adb4981890",  # <-- este es tu ID de API
+    "llm_model": "gpt-4o",
+    "llm_temperature": 0.7,
+    "system_prompt": (
+        "You are an empathetic AI Language Tutor trained in the MNASL (Methodology for the Natural Acquisition of Second Languages). "
+        "Your mission is to foster natural communication by creating a motivating and emotionally safe environment. "
+        "You never correct errors directly. Instead, you naturally reformulate the learner’s utterances (motherese style), "
+        "providing the correct model in context. You maintain a warm, supportive tone, reduce anxiety, "
+        "and encourage intrinsic motivation. Your ultimate goal is to promote natural language acquisition through meaningful feedback and interaction."
+    )
+}
 
-    # 3.5. Enviar la solicitud a OpenAI usando httpx (un cliente HTTP asíncrono)
-    async with httpx.AsyncClient() as client:
-        
-        # 3.6. Ejecutar la solicitud (POST, GET, etc.)
-        response = await client.request(
-            method=method,
-            url=url,
-            headers=headers,
-            json=data,
-            # Importante: Desactivar seguimiento de redirecciones para Streaming
-            follow_redirects=False, 
-            # Timeout (tiempo de espera) alto para que el LLM tenga tiempo de responder
-            timeout=300.0 
-        )
+# === PETICIÓN ===
+print("🚀 Creando agente MNASL en Beyond Presence...")
+response = requests.post(
+    "https://api.beyondpresence.io/v1/agents",
+    headers=headers,
+    json=payload
+)
 
-        # 3.7. Si la respuesta es Streaming (típico de Beyond Presence), devolvemos el stream.
-        if "text/event-stream" in response.headers.get("content-type", ""):
-            # Función generadora para transmitir la respuesta línea por línea
-            async def generate():
-                async for chunk in response.aiter_bytes():
-                    yield chunk
-            
-            # Devolver la respuesta en streaming
-            return StreamingResponse(
-                generate(), 
-                status_code=response.status_code, 
-                headers=response.headers
-            )
-        
-        # 3.8. Si no es Streaming, devolvemos la respuesta JSON normal.
-        return response
+# === RESULTADO ===
+if response.status_code in [200, 201]:
+    print("✅ Agente creado correctamente.")
+    data = response.json()
+    print("🆔 Agent ID:", data.get("id"))
+    print("🌐 URL del agente:", data.get("url", "No especificada"))
+else:
+    print("❌ Error al crear el agente:")
+    print(response.status_code, response.text)
