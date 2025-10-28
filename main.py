@@ -1,48 +1,46 @@
+from flask import Flask, request, jsonify
+import requests
 import os
-import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
-app = FastAPI()
+app = Flask(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
-@app.post("/v1/chat/completions")
-async def proxy_openai_endpoint(request: Request):
+@app.route("/v1/chat/completions", methods=["POST"])
+def chat_completions():
     try:
-        body = await request.json()
-
         if not OPENAI_API_KEY:
-            return JSONResponse(
-                content={"error": "Falta la variable OPENAI_API_KEY en Render."},
-                status_code=500
-            )
+            return jsonify({"error": "Missing OPENAI_API_KEY"}), 500
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                OPENAI_BASE_URL,
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
 
-        # Mostrar la respuesta de OpenAI para depurar
-        try:
-            data = response.json()
-        except Exception:
-            data = {"error": "Respuesta no JSON de OpenAI", "text": response.text}
+        # Llama directamente al endpoint de OpenAI
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
 
-        return JSONResponse(content=data, status_code=response.status_code)
+        response = requests.post(OPENAI_URL, headers=headers, json=data)
+
+        if response.status_code != 200:
+            return jsonify({
+                "error": "OpenAI API error",
+                "status_code": response.status_code,
+                "response_text": response.text
+            }), response.status_code
+
+        return jsonify(response.json())
 
     except Exception as e:
-        import traceback
-        return JSONResponse(
-            content={"error": str(e), "traceback": traceback.format_exc()},
-            status_code=500
-        )
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
 
 
 
