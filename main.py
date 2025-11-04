@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
-import requests
+import httpx  # <-- Cambiado a httpx (asíncrono)
 import os
+import asyncio
 
 app = Flask(__name__)
 
@@ -17,27 +18,29 @@ def chat_completions():
         if not data:
             return jsonify({"error": "Missing request body"}), 400
 
-        # Llama directamente al endpoint de OpenAI
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json",
-        }
+        # Usa httpx asíncrono con timeout
+        async def call_openai():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    OPENAI_URL,
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json=data,
+                )
+                response.raise_for_status()
+                return response.json()
 
-        response = requests.post(OPENAI_URL, headers=headers, json=data)
-
-        if response.status_code != 200:
-            return jsonify({
-                "error": "OpenAI API error",
-                "status_code": response.status_code,
-                "response_text": response.text
-            }), response.status_code
-
-        return jsonify(response.json())
+        # Ejecuta el async en sync
+        result = asyncio.run(call_openai())
+        return jsonify(result)
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e), "traceback": __import__('traceback').format_exc()}), 500
 
-
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
 
 
 
