@@ -1,49 +1,58 @@
 from flask import Flask, request, jsonify
-import httpx  # <-- Cambiado a httpx (asíncrono)
+import httpx
 import os
 import asyncio
+import logging
 
+# Configuración básica
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    app.logger.error("OPENAI_API_KEY no configurada")
+    raise RuntimeError("OPENAI_API_KEY no encontrada")
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 @app.route("/v1/chat/completions", methods=["POST"])
-def chat_completions():
+async def chat_completions():
     try:
-        if not OPENAI_API_KEY:
-            return jsonify({"error": "Missing OPENAI_API_KEY"}), 500
-
         data = request.get_json()
         if not data:
-            return jsonify({"error": "Missing request body"}), 400
+            return jsonify({"error": "JSON inválido o vacío"}), 400
 
-        # Usa httpx asíncrono con timeout
-        async def call_openai():
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    OPENAI_URL,
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json=data,
-                )
-                response.raise_for_status()
-                return response.json()
+        model = data.get("model", "gpt-4o-mini")
+        messages = data.get("messages", [])
+        if not messages:
+            return jsonify({"error": "Falta campo 'messages'"}), 400
 
-        # Ejecuta el async en sync
-        result = asyncio.run(call_openai())
-        return jsonify(result)
+        # Llamada asíncrona a OpenAI
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                OPENAI_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": model, "messages": messages},
+            )
+
+        # Manejo de errores de OpenAI
+        if response.status_code != 200:
+            error_text = response.text
+            app.logger.error(f"OpenAI error {response.status_code}: {error_text}")
+            return jsonify({"error": "OpenAI API error", "response_text": error_text}), response.status_code
+
+        return jsonify(response.json())
 
     except Exception as e:
-        return jsonify({"error": str(e), "traceback": __import__('traceback').format_exc()}), 500
+        app.logger.error(f"Error interno: {str(e)}")
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+
+# Para Gunicorn
+def create_app():
+    return app
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
-
-
-
-
-
-
